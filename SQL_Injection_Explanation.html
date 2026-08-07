@@ -1,0 +1,63 @@
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+    <meta charset="utf-8">
+    <title>SQL Injection Prevention Explanation</title>
+    <style>
+        body { font-family: Calibri, Arial, sans-serif; line-height: 1.6; }
+        h1 { color: #2C3E50; }
+        h2 { color: #34495E; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        code { background-color: #f4f4f4; padding: 2px 4px; border-radius: 4px; font-family: Consolas, monospace; }
+        .query { background-color: #e8f4f8; border-left: 4px solid #3498db; padding: 10px; font-family: Consolas, monospace; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>SQL Injection: Vulnerabilities and Prevention</h1>
+    
+    <h2>1. The Vulnerable Approach (Direct Concatenation)</h2>
+    <p>In <code>login_vulnerable.php</code>, user input is directly concatenated into the SQL query string. This is highly dangerous because the database engine cannot distinguish between the developer's intended SQL structure and the data provided by the user. The data is treated as executable code.</p>
+    <p><strong>Example Attack:</strong> If an attacker enters <code>' OR '1'='1' -- </code> as the username, the resulting query becomes:</p>
+    <div class="query">SELECT * FROM users WHERE username = '' OR '1'='1' -- ' AND password = '...'</div>
+    <p>Because <code>'1'='1'</code> is a condition that is always true, the database returns a valid row (often the first user in the table, typically an administrator). The <code>-- </code> instructs MySQL to treat the rest of the query as a comment, meaning the password check is entirely ignored. The attacker has successfully bypassed authentication without knowing any passwords.</p>
+
+    <h3>Code Implementation (Vulnerable)</h3>
+    <pre style="background-color: #fdf6e3; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-family: Consolas, monospace;"><code>// 1. Inputs are taken directly from the user
+$username = $_POST['username'];
+$password = hash('sha256', $_POST['password']);
+
+// 2. The inputs are concatenated directly into the SQL string
+$sql = "SELECT * FROM users WHERE username = '$username' AND password = '$password'";
+
+// 3. The query is executed as-is
+$result = $conn-&gt;query($sql);</code></pre>
+    <p><strong>Explanation:</strong> In the code above, the variables <code>$username</code> and <code>$password</code> are inserted directly into the query string using string interpolation. If the user types SQL commands (like single quotes <code>'</code> or comments <code>--</code>) into the input fields, the database will interpret those commands as part of the query logic instead of just plain text data.</p>
+
+    <h2>2. The Secure Approach (Prepared Statements)</h2>
+    <p>In <code>login_secure.php</code>, we use <strong>Prepared Statements</strong> (parameterized queries) to eliminate this vulnerability.</p>
+    <p>A prepared statement separates the SQL code structure from the user-provided data. The SQL statement template is sent to the database server first and compiled. Then, the user inputs are sent separately as bound parameters.</p>
+    <p><strong>Why it prevents SQLi:</strong> Because the structure is already compiled, the database engine treats the bound parameters strictly as literal values (data), <em>never</em> as executable SQL code. If an attacker inputs <code>' OR '1'='1' -- </code>, the database simply searches for a user whose literal username is exactly that string. It does not execute the <code>OR</code> clause, completely neutralizing the injection attempt.</p>
+
+    <h3>Code Implementation (Secure)</h3>
+    <pre style="background-color: #e8f5e9; padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-family: Consolas, monospace;"><code>// 1. Inputs are received
+$username = $_POST['username'];
+$password = hash('sha256', $_POST['password']);
+
+// 2. The SQL statement is PREPARED using placeholders (?)
+$stmt = $conn-&gt;prepare("SELECT id, username, password FROM users WHERE username = ? AND password = ?");
+
+// 3. The user inputs are BOUND to the placeholders strictly as strings ("ss")
+$stmt-&gt;bind_param("ss", $username, $password);
+
+// 4. The statement is executed safely
+$stmt-&gt;execute();</code></pre>
+    <p><strong>Explanation:</strong> Here, the SQL statement is defined with <code>?</code> placeholders. The <code>prepare()</code> function sends this empty structure to the database first. When <code>bind_param()</code> is called, the database receives the user inputs completely separately. It explicitly treats the inputs as literal strings (denoted by <code>"ss"</code>). Even if the user inputs SQL commands, the database ignores them because it has already locked in the query structure.</p>
+
+    <h2>3. Proper Input Validation and Sanitization</h2>
+    <p>While prepared statements prevent SQL injection, comprehensive web security requires a "Defense in Depth" strategy. In <code>register.php</code> and <code>login_secure.php</code>, we implemented robust validation and sanitization:</p>
+    <ul>
+        <li><strong>Validation:</strong> Ensures that data conforms to strict expected formats before any processing occurs. For example, verifying a username is exactly 5-20 alphanumeric characters using Regular Expressions (<code>preg_match</code>), or ensuring an email is structurally valid (<code>filter_var</code>). Validation acts as a gatekeeper, rejecting malicious or malformed input immediately.</li>
+        <li><strong>Sanitization:</strong> Removes or safely encodes potentially dangerous characters. For example, using <code>htmlspecialchars()</code> or <code>strip_tags()</code> prevents <strong>Cross-Site Scripting (XSS)</strong> attacks. This ensures that if the user's input is later displayed on a webpage, it renders as harmless text rather than executing malicious JavaScript in another user's browser.</li>
+    </ul>
+    
+    <p><strong>Conclusion:</strong> Security must be proactive. Combining input validation (to ensure data correctness), sanitization (to prevent XSS), and prepared statements (to prevent SQLi) ensures that an application is resilient against the most common and dangerous web vulnerabilities.</p>
+</body>
+</html>
